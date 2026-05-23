@@ -26,28 +26,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading: true,
   });
 
-  // Initialize auth state from localStorage
+  // Initialize auth state from localStorage, then re-validate with the server.
+  // We never trust the cached `user` (especially `role`) as authoritative —
+  // it is only used as an optimistic placeholder while /auth/me is in-flight.
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    const userStr = localStorage.getItem('user');
 
-    if (token && userStr) {
+    if (!token) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      return;
+    }
+
+    // Optimistic hydration (UI only — server response below is authoritative)
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
       try {
-        const user = JSON.parse(userStr) as User;
-        setState({
-          user,
-          token,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+        const cachedUser = JSON.parse(userStr) as User;
+        setState({ user: cachedUser, token, isAuthenticated: true, isLoading: true });
       } catch {
+        localStorage.removeItem('user');
+      }
+    }
+
+    // Authoritative re-validation against backend
+    api.getCurrentUser()
+      .then((user) => {
+        localStorage.setItem('user', JSON.stringify(user));
+        setState({ user, token, isAuthenticated: true, isLoading: false });
+      })
+      .catch(() => {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
-        setState(prev => ({ ...prev, isLoading: false }));
-      }
-    } else {
-      setState(prev => ({ ...prev, isLoading: false }));
-    }
+        setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
+      });
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials) => {

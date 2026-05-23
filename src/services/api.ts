@@ -42,9 +42,28 @@ class ApiService {
         localStorage.removeItem('user');
         window.location.href = '/login';
       }
-      
-      const error = await response.json().catch(() => ({ message: 'An error occurred' }));
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+
+      // Log raw error for debugging but never surface it to users
+      const rawError = await response.json().catch(() => null);
+      if (rawError) {
+        console.error('[API error]', response.status, rawError);
+      }
+
+      // Map status codes to safe, generic user-facing messages
+      const safeMessages: Record<number, string> = {
+        400: 'The request was invalid. Please check your input and try again.',
+        401: 'Authentication failed. Please sign in again.',
+        403: 'You do not have permission to perform this action.',
+        404: 'The requested resource was not found.',
+        409: 'This action conflicts with the current state. Please refresh and try again.',
+        429: 'Too many requests. Please try again later.',
+      };
+      const message =
+        safeMessages[response.status] ||
+        (response.status >= 500
+          ? 'The server is currently unavailable. Please try again later.'
+          : 'Something went wrong. Please try again.');
+      throw new Error(message);
     }
 
     // Handle empty responses
